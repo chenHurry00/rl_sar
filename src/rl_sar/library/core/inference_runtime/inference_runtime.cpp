@@ -66,9 +66,21 @@ std::vector<float> TorchModel::forward(const std::vector<std::vector<float>>& in
 #ifdef USE_TORCH
     try
     {
-        // Convert input vector to Torch tensor (use first input only)
-        const auto& input = inputs[0];
-        auto input_tensor = torch::tensor(input, torch::kFloat32).reshape({1, static_cast<int64_t>(input.size())});
+        // Check if we have any inputs
+        if (inputs.empty())
+        {
+            throw std::runtime_error("No inputs provided");
+        }
+
+        // Convert all inputs to Torch tensors
+        std::vector<torch::jit::IValue> torch_inputs;
+        torch_inputs.reserve(inputs.size());
+
+        for (const auto& input : inputs)
+        {
+            auto input_tensor = torch::tensor(input, torch::kFloat32).reshape({1, static_cast<int64_t>(input.size())});
+            torch_inputs.push_back(input_tensor);
+        }
 
         // Disable gradient computation before each forward pass
         torch::autograd::GradMode::set_enabled(false);
@@ -76,8 +88,8 @@ std::vector<float> TorchModel::forward(const std::vector<std::vector<float>>& in
         // Ensure single-threaded execution (critical for performance!)
         torch::set_num_threads(1);
 
-        // Execute forward inference
-        auto output = model_.forward({input_tensor}).toTensor();
+        // Execute forward inference with all inputs
+        auto output = model_.forward(torch_inputs).toTensor();
 
         // Convert output tensor to vector
         return torch_to_vector(output);
