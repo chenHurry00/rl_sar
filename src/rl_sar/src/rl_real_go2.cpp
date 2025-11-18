@@ -251,7 +251,18 @@ std::vector<float> RL_Real::Forward()
     {
         this->history_obs_buf.insert(clamped_obs);
         this->history_obs = this->history_obs_buf.get_obs_vec(this->params.Get<std::vector<int>>("observations_history"));
-        actions = this->model->forward({this->history_obs});
+
+        std::vector<std::vector<float>> model_inputs = {clamped_obs, this->history_obs};
+        actions = this->model->forward(model_inputs);
+
+        std::vector<int> scale_indices = {0, 3, 6, 9};
+        for (int idx : scale_indices)
+        {
+            if (idx >= 0 && idx < actions.size())
+            {
+                actions[idx] *= 0.5f; // hip reduction
+            }
+        }
     }
     else
     {
