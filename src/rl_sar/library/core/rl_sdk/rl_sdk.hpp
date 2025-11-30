@@ -185,7 +185,13 @@ struct Observations
 class RL
 {
 public:
-    RL() {};
+    RL(){
+        gaits.resize(6);
+        gaits.at(2) = gait_frequency;
+        gaits.at(3) = gait_offset;
+        gaits.at(4) = gait_duration;
+        gaits.at(5) = gait_swing;
+    };
     ~RL() {};
 
     YamlParams params;
@@ -215,6 +221,7 @@ public:
     std::vector<float> ComputeObservation();
     virtual void GetState(RobotState<float> *state) = 0;
     virtual void SetCommand(const RobotCommand<float> *command) = 0;
+    void ComputeGaits();
     void StateController(const RobotState<float> *state, RobotCommand<float> *command);
     void ComputeOutput(const std::vector<float> &actions, std::vector<float> &output_dof_pos, std::vector<float> &output_dof_vel, std::vector<float> &output_dof_tau);
 
@@ -225,6 +232,11 @@ public:
     std::string csv_filename;
     void CSVInit(std::string robot_name);
     void CSVLogger(const std::vector<float> &torque, const std::vector<float> &tau_est, const std::vector<float> &joint_pos, const std::vector<float> &joint_pos_target, const std::vector<float> &joint_vel);
+
+    // gaits
+    std::vector<float> gaits;
+    double gait_indices= 0.;
+    double gait_frequency = 1.5, gait_offset = 0.0, gait_duration = 0.5, gait_swing = 0.05;
 
     // control
     Control control;

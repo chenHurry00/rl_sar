@@ -110,6 +110,13 @@ std::vector<float> RL::ComputeObservation()
         {
             obs_list.push_back(this->obs.actions);
         }
+        else if (observation == "gaits")
+        {
+            ComputeGaits();
+            // Create tensor from the gaits array containing 6 elements
+            auto gaits_tensor = std::vector<float>(this->gaits);
+            obs_list.push_back(gaits_tensor);
+        }
         // ============= Other Observations =============
         else if (observation == "whole_body_tracking/motion_command")
         {
@@ -268,6 +275,23 @@ void RL::ComputeOutput(const std::vector<float> &actions, std::vector<float> &ou
     output_dof_vel = vel_actions_scaled;
     output_dof_tau = this->params.Get<std::vector<float>>("rl_kp") * (all_actions_scaled + this->params.Get<std::vector<float>>("default_dof_pos") - this->obs.dof_pos) - this->params.Get<std::vector<float>>("rl_kd") * this->obs.dof_vel;
     output_dof_tau = clamp(output_dof_tau, -this->params.Get<std::vector<float>>("torque_limits"), this->params.Get<std::vector<float>>("torque_limits"));
+}
+
+void RL::ComputeGaits()
+{
+    static auto last_time = std::chrono::high_resolution_clock::now();
+    auto now = std::chrono::system_clock::now();
+    auto dt = std::chrono::duration_cast<std::chrono::duration<float>>(now - last_time).count();
+
+    gait_indices = fmod(gait_indices + dt * gait_frequency, 1.0); // 等效于 np.remainder
+
+    float clock_inputs_sin = sin(2 * M_PI * gait_indices);
+    float clock_inputs_cos = cos(2 * M_PI * gait_indices);
+
+    gaits.at(0) = clock_inputs_sin;
+    gaits.at(1) = clock_inputs_cos;
+
+    last_time = now;
 }
 
 int RL::InverseJointMapping(int idx) const
