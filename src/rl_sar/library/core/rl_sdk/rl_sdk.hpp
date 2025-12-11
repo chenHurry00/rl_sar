@@ -271,6 +271,44 @@ public:
 
     // thread safety
     std::mutex model_mutex;
+
+    // bio
+    // 疲劳模型参数
+    struct FatigueConfig {
+        float F = 0.02f;          // 疲劳速率
+        float R = 0.001f;         // 基础恢复速率
+        float r = 10.0f;          // 休息恢复乘数
+        float dt = 0.02f;         // 积分步长
+        float k_recruit = 10.0f;  // 肌肉响应增益
+    };
+
+    // 能量模型参数
+    struct MetabolicConfig {
+        float cp_limit = 800.0f;        // 临界功率
+        float w_prime_total = 5000.0f;  // 能量容量
+        float tau_recovery = 0.2f;      // 恢复时间常数
+    };
+
+    // 3CC疲劳状态 (每个关节)
+    struct MuscleState {
+        float MR;  // 静息态
+        float MA;  // 激活态
+        float MF;  // 疲劳态
+    };
+
+    void update_fatigue_3cc(const std::vector<float>& torques,
+        const std::vector<float>& torque_limits, std::vector<MuscleState>& muscle_states,
+        const FatigueConfig& config, std::vector<float>& output_torques);
+    void update_metabolic_state(const std::vector<float>& torques,float& w_prime_bal, const MetabolicConfig& config);
+    std::vector<MuscleState> initialize_muscle_states(int num_joints);
+
+    float w_prime_bal_;
+    std::vector<MuscleState> muscle_states;
+    std::vector<float> torque_limits_;
+    FatigueConfig fatigue_cfg_;
+    MetabolicConfig metabolic_cfg_;
+
+
 };
 
 class RLFSMState : public FSMState

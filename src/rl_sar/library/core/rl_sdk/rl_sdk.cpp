@@ -117,6 +117,21 @@ std::vector<float> RL::ComputeObservation()
             auto gaits_tensor = std::vector<float>(this->gaits);
             obs_list.push_back(gaits_tensor);
         }
+        else if (observation  == "3cc")
+        {
+            std::vector<float> mf(12, 0);
+            for (int i = 0; i < muscle_states.size(); i++)
+                mf.at(i) = 0;//muscle_states.at(i).MF;
+
+            obs_list.push_back(mf);
+            //std::cout << "\n" << " mf: " << mf << std::endl;
+        }
+        else if (observation == "metabolic")
+        {
+            //obs_list.push_back(std::vector<float>(1.0));
+            obs_list.push_back(std::vector<float>(w_prime_bal_ / metabolic_cfg_.w_prime_total));
+            //std::cout << " meta: " << w_prime_bal_ / metabolic_cfg_.w_prime_total << std::endl;
+        }
         // ============= Other Observations =============
         else if (observation == "whole_body_tracking/motion_command")
         {
@@ -212,6 +227,16 @@ void RL::InitOutputs()
     this->output_dof_pos = this->params.Get<std::vector<float>>("default_dof_pos");
     this->output_dof_vel.clear();
     this->output_dof_vel.resize(num_of_dofs, 0.0f);
+
+    // 初始化状态
+    muscle_states = initialize_muscle_states(12);
+    w_prime_bal_ = metabolic_cfg_.w_prime_total;
+    fatigue_cfg_.dt = this->params.Get<float>("dt") * this->params.Get<int>("decimation");
+
+    // 关节力矩限制
+    torque_limits_ = std::vector<float>(num_of_dofs, 23.0f);
+    for (int i = 0; i < num_of_dofs; i++)
+        torque_limits_.at(i) = this->params.Get<std::vector<float>>("torque_limits")[i];
 }
 
 void RL::InitControl()
@@ -253,6 +278,7 @@ void RL::InitRL(std::string robot_config_path)
 
     // init model
     std::string model_path = std::string(POLICY_DIR) + "/" + robot_config_path + "/" + this->params.Get<std::string>("model_name");
+    std::cout << "Load model: " << model_path.c_str() << std::endl;
     this->model = InferenceRuntime::ModelFactory::load_model(model_path);
     if (!this->model)
     {
@@ -275,6 +301,16 @@ void RL::ComputeOutput(const std::vector<float> &actions, std::vector<float> &ou
     output_dof_vel = vel_actions_scaled;
     output_dof_tau = this->params.Get<std::vector<float>>("rl_kp") * (all_actions_scaled + this->params.Get<std::vector<float>>("default_dof_pos") - this->obs.dof_pos) - this->params.Get<std::vector<float>>("rl_kd") * this->obs.dof_vel;
     output_dof_tau = clamp(output_dof_tau, -this->params.Get<std::vector<float>>("torque_limits"), this->params.Get<std::vector<float>>("torque_limits"));
+
+    // 获取当前力矩 (来自控制器)
+    std::vector<float> torques= output_dof_tau;
+
+    // 更新疲劳状态
+    update_fatigue_3cc(torques, torque_limits_, muscle_states,
+                      fatigue_cfg_, output_dof_tau);
+
+    // 更新能量状态
+    update_metabolic_state(output_dof_tau,w_prime_bal_, metabolic_cfg_);
 }
 
 void RL::ComputeGaits()
@@ -550,6 +586,115 @@ void RL::CSVLogger(const std::vector<float>& torque, const std::vector<float>& t
     file << std::endl;
 
     file.close();
+}
+
+/**
+ * @brief 更新12个关节的3CC疲劳状态
+ *
+ * @param torques 当前力矩数组 [12]
+ * @param torque_limits 力矩限制数组 [12]
+ * @param muscle_states 肌肉状态数组 [12] (输入/输出)
+ * @param config 疲劳模型配置
+ * @param output_torques 输出力矩数组 [12] (考虑疲劳削减后)
+ */
+void RL::update_fatigue_3cc(
+    const std::vector<float>& torques,
+    const std::vector<float>& torque_limits,
+    std::vector<MuscleState>& muscle_states,
+    const FatigueConfig& config,
+    std::vector<float>& output_torques)
+{
+    const int num_joints = 12;
+
+    for (int i = 0; i < num_joints; ++i) {
+        // A. 计算目标负载 (归一化到 [0, 1])
+        float target_load = std::abs(torques[i]) / torque_limits[i];
+        target_load = std::clamp(target_load, 0.0f, 1.0f);
+
+        // B. 提取当前状态
+        float MR = muscle_states[i].MR;
+        float MA = muscle_states[i].MA;
+        float MF = muscle_states[i].MF;
+
+        // C. 计算招募流 (Recruitment Flow)
+        float recruitment_flow = config.k_recruit * (target_load - MA);
+
+        // D. 确定有效恢复率
+        bool is_resting = (target_load < 0.1f);
+        float R_eff = is_resting ? (config.R * config.r) : config.R;
+
+        // E. 微分方程 (Euler积分)
+        float dMA = recruitment_flow - (config.F * MA);
+        float dMF = (config.F * MA) - (R_eff * MF);
+        float dMR = -recruitment_flow + (R_eff * MF);
+
+        // F. 更新状态
+        float MR_new = MR + dMR * config.dt;
+        float MA_new = MA + dMA * config.dt;
+        float MF_new = MF + dMF * config.dt;
+
+        // G. 归一化与裁剪 (防止数值漂移)
+        float total = MR_new + MA_new + MF_new;
+        if (total > 0.0f) {
+            muscle_states[i].MR = std::clamp(MR_new / total, 0.0f, 1.0f);
+            muscle_states[i].MA = std::clamp(MA_new / total, 0.0f, 1.0f);
+            muscle_states[i].MF = std::clamp(MF_new / total, 0.0f, 1.0f);
+        }
+
+        // H. 性能限制 (根据疲劳程度削减力矩)
+        output_torques[i] = torques[i] * (1.0f - muscle_states[i].MF);
+    }
+}
+
+/**
+ * @brief 更新统一的能量状态 (基于Skiba CP/W'模型)
+ *
+ * @param torques 当前力矩数组 [12]
+ * @param w_prime_bal 当前能量余额 (输入/输出)
+ * @param config 能量模型配置
+ */
+void RL::update_metabolic_state(
+    const std::vector<float>& torques,
+    float& w_prime_bal,
+    const MetabolicConfig& config)
+{
+    const int num_joints = 12;
+
+    // 1. 计算瞬时负载 (使用力矩平方和作为功率代理)
+    float current_load = 0.0f;
+    for (int i = 0; i < num_joints; ++i) {
+        current_load += torques[i] * torques[i];
+    }
+
+    // 2. 计算相对于临界功率的盈余/赤字
+    float excess_load = current_load - config.cp_limit;
+
+    // 3. Euler积分更新
+    float dt = fatigue_cfg_.dt;  // 假设与疲劳模型相同
+
+    // 消耗阶段 (P > CP)
+    float drain = std::max(0.0f, excess_load) * dt;
+
+    // 恢复阶段 (P < CP)
+    float recovery_capacity = std::max(0.0f, config.cp_limit - current_load);
+    float recovery = (recovery_capacity / config.tau_recovery) * dt;
+
+    // 更新并截断
+    w_prime_bal = w_prime_bal - drain + recovery;
+    w_prime_bal = std::clamp(w_prime_bal, 0.0f, config.w_prime_total);
+}
+
+/**
+ * @brief 初始化肌肉状态
+ */
+std::vector<RL::MuscleState> RL::initialize_muscle_states(int num_joints) {
+    std::vector<MuscleState> states(num_joints);
+    for (auto& state : states) {
+        state.MR = 1.0f;  // 初始全部静息
+        state.MA = 0.0f;
+        state.MF = 0.0f;
+    }
+    return states;
 }
 
 bool RLFSMState::Interpolate(
