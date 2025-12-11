@@ -5,6 +5,8 @@
 
 #include "rl_sim.hpp"
 
+#include <std_msgs/Float64.h>
+
 RL_Sim::RL_Sim(int argc, char **argv)
 {
 #if defined(USE_ROS1)
@@ -91,6 +93,7 @@ RL_Sim::RL_Sim(int argc, char **argv)
         this->joint_publishers[joint_controller_name] =
             nh.advertise<robot_msgs::MotorCommand>(topic_name, 10);
     }
+    power_pub_ = nh.advertise<std_msgs::Float64>("/power", 1);
 
     // subscriber
     this->cmd_vel_subscriber = nh.subscribe<geometry_msgs::Twist>("/cmd_vel", 10, &RL_Sim::CmdvelCallback, this);
@@ -447,6 +450,14 @@ void RL_Sim::JointStatesCallback(const robot_msgs::MotorState::ConstPtr &msg, co
     this->joint_positions[joint_controller_name] = msg->q;
     this->joint_velocities[joint_controller_name] = msg->dq;
     this->joint_efforts[joint_controller_name] = msg->tau_est;
+
+    std_msgs::Float64 power;
+    power.data = 0;
+    for (auto item : this->joint_efforts)
+    {
+        power.data += item.second*item.second;
+    }
+    power_pub_.publish(power);
 }
 #elif defined(USE_ROS2)
 void RL_Sim::RobotStateCallback(const robot_msgs::msg::RobotState::SharedPtr msg)

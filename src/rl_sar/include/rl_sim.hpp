@@ -88,6 +88,7 @@ private:
     ros::Subscriber model_state_subscriber;
     ros::Subscriber cmd_vel_subscriber;
     ros::Subscriber joy_subscriber;
+    ros::Publisher power_pub_;
     ros::ServiceClient gazebo_pause_physics_client;
     ros::ServiceClient gazebo_unpause_physics_client;
     ros::ServiceClient gazebo_reset_world_client;
