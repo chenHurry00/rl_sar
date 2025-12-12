@@ -66,7 +66,6 @@ private:
     void SetCommand(const RobotCommand<float> *command) override;
     void RunModel();
     void RobotControl();
-    void UpdateContactFilter();
 
     // loop
     std::shared_ptr<LoopFunc> loop_keyboard;
@@ -83,8 +82,6 @@ private:
     // ros interface
     std::string ros_namespace;
 #if defined(USE_ROS1)
-    std::vector<float> foot_forces;
-    std::vector<bool> last_contacts;
 
     geometry_msgs::Twist vel;
     geometry_msgs::Pose pose;

@@ -247,6 +247,11 @@ public:
     ObservationBuffer history_obs_buf;
     std::vector<float> history_obs;
 
+    // foot contact
+    void UpdateContactFilter();
+    std::vector<float> foot_forces;
+    std::vector<bool> last_contacts;
+
     // others
     int motiontime = 0;
     std::string robot_name, config_name;

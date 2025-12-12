@@ -318,22 +318,6 @@ void RL_Sim::GetState(RobotState<float> *state)
     this->UpdateContactFilter();
 }
 
-void RL_Sim::UpdateContactFilter()
-{
-    const float contact_threshold = 2.0f;
-
-    std::vector<bool> current_contact(4, false);
-    for (int i = 0; i < 4; ++i) {
-        current_contact[i] = (std::abs(this->foot_forces[i]) > contact_threshold);
-    }
-
-    for (int i = 0; i < 4; ++i) {
-        this->obs.contact_filt[i] = current_contact[i] || this->last_contacts[i];
-    }
-
-    this->last_contacts = current_contact;
-}
-
 void RL_Sim::SetCommand(const RobotCommand<float> *command)
 {
     for (int i = 0; i < this->params.Get<int>("num_of_dofs"); ++i)

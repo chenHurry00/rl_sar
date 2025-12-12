@@ -330,6 +330,22 @@ void RL::ComputeGaits()
     last_time = now;
 }
 
+void RL::UpdateContactFilter()
+{
+    const float contact_threshold = 2.0f;
+
+    std::vector<bool> current_contact(4, false);
+    for (int i = 0; i < 4; ++i) {
+        current_contact[i] = (std::abs(this->foot_forces[i]) > contact_threshold);
+    }
+
+    for (int i = 0; i < 4; ++i) {
+        this->obs.contact_filt[i] = current_contact[i] || this->last_contacts[i];
+    }
+
+    this->last_contacts = current_contact;
+}
+
 int RL::InverseJointMapping(int idx) const
 {
     auto joint_mapping = this->params.Get<std::vector<int>>("joint_mapping");
