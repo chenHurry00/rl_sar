@@ -253,7 +253,7 @@ public:
     // foot contact
     void UpdateContactFilter();
     std::vector<float> foot_forces;
-    std::vector<bool> last_contacts;
+    std::vector<bool> current_contacts, last_contacts;
 
     // others
     int motiontime = 0;
