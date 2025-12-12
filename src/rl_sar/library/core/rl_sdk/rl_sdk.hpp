@@ -177,6 +177,7 @@ struct Observations
     std::vector<T> gravity_vec;
     std::vector<T> commands;
     std::vector<T> base_quat;
+    std::vector<T> contact_filt;
     std::vector<T> dof_pos;
     std::vector<T> dof_vel;
     std::vector<T> actions;

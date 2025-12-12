@@ -30,6 +30,7 @@
 #include "std_srvs/Empty.h"
 #include <sensor_msgs/Joy.h>
 #include <geometry_msgs/Twist.h>
+#include <geometry_msgs/WrenchStamped.h>
 #include <gazebo_msgs/ModelStates.h>
 #include "robot_msgs/MotorCommand.h"
 #include "robot_msgs/MotorState.h"
@@ -65,6 +66,7 @@ private:
     void SetCommand(const RobotCommand<float> *command) override;
     void RunModel();
     void RobotControl();
+    void UpdateContactFilter();
 
     // loop
     std::shared_ptr<LoopFunc> loop_keyboard;
@@ -81,6 +83,9 @@ private:
     // ros interface
     std::string ros_namespace;
 #if defined(USE_ROS1)
+    std::vector<float> foot_forces;
+    std::vector<bool> last_contacts;
+
     geometry_msgs::Twist vel;
     geometry_msgs::Pose pose;
     geometry_msgs::Twist cmd_vel;
@@ -88,6 +93,10 @@ private:
     ros::Subscriber model_state_subscriber;
     ros::Subscriber cmd_vel_subscriber;
     ros::Subscriber joy_subscriber;
+    ros::Subscriber fr_foot_contact_sub;
+    ros::Subscriber fl_foot_contact_sub;
+    ros::Subscriber rr_foot_contact_sub;
+    ros::Subscriber rl_foot_contact_sub;
     ros::Publisher power_pub_;
     ros::ServiceClient gazebo_pause_physics_client;
     ros::ServiceClient gazebo_unpause_physics_client;

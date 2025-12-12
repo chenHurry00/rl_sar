@@ -115,6 +115,35 @@ RL_Sim::RL_Sim(int argc, char **argv)
         this->joint_efforts[joint_controller_name] = 0.0f;
     }
 
+    // Foot contact
+    this->foot_forces.resize(4, 0.0f);
+    this->last_contacts.resize(4, false);
+    this->obs.contact_filt.resize(4, false);
+
+    this->fr_foot_contact_sub = nh.subscribe<geometry_msgs::WrenchStamped>(
+        "/visual/FR_foot_contact/the_force", 10,
+        [this](const geometry_msgs::WrenchStamped::ConstPtr& msg) {
+            this->foot_forces[0] = msg->wrench.force.z;
+        });
+
+    this->fl_foot_contact_sub = nh.subscribe<geometry_msgs::WrenchStamped>(
+        "/visual/FL_foot_contact/the_force", 10,
+        [this](const geometry_msgs::WrenchStamped::ConstPtr& msg) {
+            this->foot_forces[1] = msg->wrench.force.z;
+        });
+
+    this->rr_foot_contact_sub = nh.subscribe<geometry_msgs::WrenchStamped>(
+        "/visual/RR_foot_contact/the_force", 10,
+        [this](const geometry_msgs::WrenchStamped::ConstPtr& msg) {
+            this->foot_forces[2] = msg->wrench.force.z;
+        });
+
+    this->rl_foot_contact_sub = nh.subscribe<geometry_msgs::WrenchStamped>(
+        "/visual/RL_foot_contact/the_force", 10,
+        [this](const geometry_msgs::WrenchStamped::ConstPtr& msg) {
+            this->foot_forces[3] = msg->wrench.force.z;
+        });
+
     // service
     nh.param<std::string>("gazebo_model_name", this->gazebo_model_name, "");
     this->gazebo_pause_physics_client = nh.serviceClient<std_srvs::Empty>("/gazebo/pause_physics");
@@ -285,6 +314,24 @@ void RL_Sim::GetState(RobotState<float> *state)
         state->motor_state.tau_est[i] = this->robot_state_subscriber_msg.motor_state[this->params.Get<std::vector<int>>("joint_mapping")[i]].tau_est;
 #endif
     }
+
+    this->UpdateContactFilter();
+}
+
+void RL_Sim::UpdateContactFilter()
+{
+    const float contact_threshold = 2.0f;
+
+    std::vector<bool> current_contact(4, false);
+    for (int i = 0; i < 4; ++i) {
+        current_contact[i] = (std::abs(this->foot_forces[i]) > contact_threshold);
+    }
+
+    for (int i = 0; i < 4; ++i) {
+        this->obs.contact_filt[i] = current_contact[i] || this->last_contacts[i];
+    }
+
+    this->last_contacts = current_contact;
 }
 
 void RL_Sim::SetCommand(const RobotCommand<float> *command)
