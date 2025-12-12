@@ -209,6 +209,7 @@ void RL::InitObservations()
     this->obs.lin_vel = {0.0f, 0.0f, 0.0f};
     this->obs.ang_vel = {0.0f, 0.0f, 0.0f};
     this->obs.gravity_vec = {0.0f, 0.0f, -1.0f};
+    this->obs.euler_angles = {0.0f, 0.0f, 0.0f};
     this->obs.commands = {0.0f, 0.0f, 0.0f};
     this->obs.base_quat = {0.0f, 0.0f, 0.0f, 1.0f};
     this->obs.dof_pos = this->params.Get<std::vector<float>>("default_dof_pos");
@@ -345,6 +346,39 @@ void RL::UpdateContactFilter()
 
     this->last_contacts = current_contact;
 }
+
+void RL::updateEulerAngles()
+{
+    double qw = this->obs.base_quat[0];
+    double qx = this->obs.base_quat[1];
+    double qy = this->obs.base_quat[2];
+    double qz = this->obs.base_quat[3];
+
+    Eigen::Quaterniond q(qw, qx, qy, qz);
+    Eigen::Vector3d euler =
+        q.toRotationMatrix().eulerAngles(0, 1, 2); // roll pitch yaw
+
+    double yaw = std::atan2(
+        2.0 * (qw * qz + qx * qy),
+        1.0 - 2.0 * (qy * qy + qz * qz)
+    );
+
+    // continuous ranges
+    if (!yaw_initialized) {
+        last_yaw = yaw;
+        yaw_initialized = true;
+    } else {
+        double dyaw = yaw - last_yaw;
+        if (dyaw > M_PI)  yaw -= 2.0 * M_PI;
+        if (dyaw < -M_PI) yaw += 2.0 * M_PI;
+        last_yaw = yaw;
+    }
+
+    this->obs.euler_angles[0] = static_cast<float>(euler[0]);
+    this->obs.euler_angles[1] = static_cast<float>(euler[1]);
+    this->obs.euler_angles[2] = yaw;
+}
+
 
 int RL::InverseJointMapping(int idx) const
 {

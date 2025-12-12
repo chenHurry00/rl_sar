@@ -528,6 +528,8 @@ void RL_Sim::RunModel()
             output_dof_tau_queue.push(this->output_dof_tau);
         }
 
+        this->updateEulerAngles();
+
         // this->TorqueProtect(this->output_dof_tau);
         // this->AttitudeProtect(this->robot_state.imu.quaternion, 75.0f, 75.0f);
 

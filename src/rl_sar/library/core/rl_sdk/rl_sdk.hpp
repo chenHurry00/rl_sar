@@ -16,6 +16,8 @@
 #include <memory>
 #include <fstream>
 #include <mutex>
+#include <Eigen/Geometry>
+#include <Eigen/Dense>
 
 #include <yaml-cpp/yaml.h>
 #include "fsm.hpp"
@@ -177,6 +179,7 @@ struct Observations
     std::vector<T> gravity_vec;
     std::vector<T> commands;
     std::vector<T> base_quat;
+    std::vector<T> euler_angles;
     std::vector<T> contact_filt;
     std::vector<T> dof_pos;
     std::vector<T> dof_vel;
@@ -260,6 +263,11 @@ public:
     unsigned long long episode_length_buf = 0;
     float motion_length = 0.0;
     int InverseJointMapping(int idx) const;
+
+    // euler
+    void updateEulerAngles();
+    float last_yaw = 0.0f;
+    bool yaw_initialized = false;
 
     // Motion tracking (for mimic/dance tasks)
     std::unique_ptr<MotionLoader> motion_loader;
