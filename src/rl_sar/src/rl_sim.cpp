@@ -118,6 +118,7 @@ RL_Sim::RL_Sim(int argc, char **argv)
     // Foot contact
     this->foot_forces.resize(4, 0.0f);
     this->last_contacts.resize(4, false);
+    this->current_contacts.resize(4, false);
     this->obs.contact_filt.resize(4, false);
 
     this->fr_foot_contact_sub = nh.subscribe<geometry_msgs::WrenchStamped>(
