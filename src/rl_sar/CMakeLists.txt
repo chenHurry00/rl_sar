@@ -399,6 +399,7 @@ endif()
 # executable for rl sim
 if(NOT USE_CMAKE)
     add_executable(rl_sim src/rl_sim.cpp)
+    add_dependencies(rl_sim robot_msgs_generate_messages_cpp)
     target_link_libraries(rl_sim
         rl_sdk
         observation_buffer
