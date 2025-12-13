@@ -24,12 +24,15 @@
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
+#include <cv_bridge/cv_bridge.h>
+#include <opencv2/opencv.hpp>
 
 #if defined(USE_ROS1)
 #include <ros/ros.h>
 #include "std_srvs/Empty.h"
 #include <sensor_msgs/Joy.h>
 #include <geometry_msgs/Twist.h>
+#include <sensor_msgs/Image.h>
 #include <geometry_msgs/WrenchStamped.h>
 #include <gazebo_msgs/ModelStates.h>
 #include "robot_msgs/MotorCommand.h"
@@ -66,12 +69,16 @@ private:
     void SetCommand(const RobotCommand<float> *command) override;
     void RunModel();
     void RobotControl();
+    void ProcessDepthImage();
+    void SmoothDepthMap();
+    void PublishDepthVisualization(const cv::Mat& depth_m);
 
     // loop
     std::shared_ptr<LoopFunc> loop_keyboard;
     std::shared_ptr<LoopFunc> loop_control;
     std::shared_ptr<LoopFunc> loop_rl;
     std::shared_ptr<LoopFunc> loop_plot;
+    std::shared_ptr<LoopFunc> loop_depth;
 
     // plot
     const int plot_size = 100;
@@ -94,13 +101,20 @@ private:
     ros::Subscriber fl_foot_contact_sub;
     ros::Subscriber rr_foot_contact_sub;
     ros::Subscriber rl_foot_contact_sub;
+    ros::Subscriber d435_depth_sub;
     ros::Publisher power_pub_;
+    ros::Publisher depth_vis_pub_;
     ros::ServiceClient gazebo_pause_physics_client;
     ros::ServiceClient gazebo_unpause_physics_client;
     ros::ServiceClient gazebo_reset_world_client;
     std::map<std::string, ros::Publisher> joint_publishers;
     std::map<std::string, ros::Subscriber> joint_subscribers;
     std::vector<robot_msgs::MotorCommand> joint_publishers_commands;
+    sensor_msgs::Image depth_image;
+    std::vector<std::vector<float>> depth_map;  // [height][width]
+    const int DEPTH_WIDTH = 87;
+    const int DEPTH_HEIGHT = 58;
+    bool depth_image_received;
     void ModelStatesCallback(const gazebo_msgs::ModelStates::ConstPtr &msg);
     void JointStatesCallback(const robot_msgs::MotorState::ConstPtr &msg, const std::string &joint_controller_name);
     void CmdvelCallback(const geometry_msgs::Twist::ConstPtr &msg);

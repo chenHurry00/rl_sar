@@ -30,6 +30,7 @@ endif()
 set(USE_MUJOCO OFF CACHE BOOL "Build with MuJoCo simulator support")
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(OpenCV_DIR /usr/lib/x86_64-linux-gnu/cmake/opencv4)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
@@ -61,11 +62,16 @@ if(NOT USE_CMAKE)
             robot_msgs
             robot_joint_controller
             rospy
+            OpenCV
+            cv_bridge
+            image_transport
         )
         catkin_package(
             CATKIN_DEPENDS
             robot_joint_controller
             rospy
+            cv_bridge
+            image_transport
         )
     elseif($ENV{ROS_DISTRO} MATCHES "foxy|humble")
         find_package(ament_cmake REQUIRED)
@@ -326,7 +332,7 @@ endif()
 
 if(NOT USE_CMAKE)
     if($ENV{ROS_DISTRO} MATCHES "noetic")
-        include_directories(${catkin_INCLUDE_DIRS})
+        include_directories(${catkin_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
     endif()
 endif()
 
@@ -407,7 +413,7 @@ if(NOT USE_CMAKE)
         Threads::Threads
     )
     if($ENV{ROS_DISTRO} MATCHES "noetic")
-        target_link_libraries(rl_sim ${catkin_LIBRARIES})
+        target_link_libraries(rl_sim ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
     elseif($ENV{ROS_DISTRO} MATCHES "foxy|humble")
         ament_target_dependencies(rl_sim
             joint_state_broadcaster

@@ -95,6 +95,13 @@ RL_Sim::RL_Sim(int argc, char **argv)
     }
     power_pub_ = nh.advertise<std_msgs::Float64>("/power", 1);
 
+    // Depth visualization publisher
+    depth_vis_pub_ = nh.advertise<sensor_msgs::Image>("/depth_visualization_cliped", 1);
+    this->depth_map.resize(this->DEPTH_HEIGHT);
+    for (int i = 0; i < this->DEPTH_HEIGHT; ++i) {
+        this->depth_map[i].resize(this->DEPTH_WIDTH);
+    }
+
     // subscriber
     this->cmd_vel_subscriber = nh.subscribe<geometry_msgs::Twist>("/cmd_vel", 10, &RL_Sim::CmdvelCallback, this);
     this->joy_subscriber = nh.subscribe<sensor_msgs::Joy>("/joy", 10, &RL_Sim::JoyCallback, this);
@@ -145,6 +152,20 @@ RL_Sim::RL_Sim(int argc, char **argv)
             this->foot_forces[3] = msg->wrench.force.z;
         });
 
+    // Depth
+    this->depth_image_received = false;
+    this->d435_depth_sub = nh.subscribe<sensor_msgs::Image>(
+        "/d435/depth/image_raw", 1,
+        [this](const sensor_msgs::Image::ConstPtr& msg) {
+            try {
+                this->depth_image = *msg;
+                this->depth_image_received = true;
+            }
+            catch (cv_bridge::Exception& e) {
+                ROS_ERROR("cv_bridge exception: %s", e.what());
+            };
+        });
+
     // service
     nh.param<std::string>("gazebo_model_name", this->gazebo_model_name, "");
     this->gazebo_pause_physics_client = nh.serviceClient<std_srvs::Empty>("/gazebo/pause_physics");
@@ -185,8 +206,10 @@ RL_Sim::RL_Sim(int argc, char **argv)
     // loop
     this->loop_control = std::make_shared<LoopFunc>("loop_control", this->params.Get<float>("dt"), std::bind(&RL_Sim::RobotControl, this));
     this->loop_rl = std::make_shared<LoopFunc>("loop_rl", this->params.Get<float>("dt") * this->params.Get<int>("decimation"), std::bind(&RL_Sim::RunModel, this));
+    this->loop_depth = std::make_shared<LoopFunc>("loop_depth", this->params.Get<float>("dt") * this->params.Get<int>("decimation"), std::bind(&RL_Sim::ProcessDepthImage, this));
     this->loop_control->start();
     this->loop_rl->start();
+    this->loop_depth->start();
 
     // keyboard
     this->loop_keyboard = std::make_shared<LoopFunc>("loop_keyboard", 0.05, std::bind(&RL_Sim::KeyboardInterface, this));
@@ -213,6 +236,7 @@ RL_Sim::~RL_Sim()
     this->loop_keyboard->shutdown();
     this->loop_control->shutdown();
     this->loop_rl->shutdown();
+    this->loop_depth->shutdown();
 #ifdef PLOT
     this->loop_plot->shutdown();
 #endif
@@ -578,6 +602,116 @@ std::vector<float> RL_Sim::Forward()
     {
         return actions;
     }
+}
+
+void RL_Sim::ProcessDepthImage()
+{
+    if (!this->depth_image_received) {
+        return;
+    }
+
+    try {
+        // ROS -> OpenCV (mm)
+        cv_bridge::CvImagePtr cv_ptr =
+            cv_bridge::toCvCopy(this->depth_image, "16UC1");
+        cv::Mat depth_mm = cv_ptr->image;
+
+        // mm -> m
+        cv::Mat depth_m;
+        depth_mm.convertTo(depth_m, CV_32FC1, 0.001);
+
+        // resize (m)
+        cv::Mat depth_resized;
+        cv::resize(depth_m, depth_resized,
+                   cv::Size(this->DEPTH_WIDTH, this->DEPTH_HEIGHT),
+                   0, 0, cv::INTER_LINEAR);
+
+        // clip
+        float near_clip = 0.0f;
+        float far_clip  = 2.0f;
+
+        cv::Mat depth_clipped;
+        cv::min(depth_resized, far_clip, depth_clipped);
+        cv::max(depth_clipped, near_clip, depth_clipped);
+
+        // normalize
+        cv::Mat depth_norm =
+            (depth_clipped - near_clip) / (far_clip - near_clip) - 0.5f;
+
+        // copy to depth_map
+        for (int y = 0; y < this->DEPTH_HEIGHT; ++y) {
+            for (int x = 0; x < this->DEPTH_WIDTH; ++x) {
+                this->depth_map[y][x] = depth_norm.at<float>(y, x);
+            }
+        }
+
+        this->SmoothDepthMap();
+
+        // visualization
+        this->PublishDepthVisualization(depth_clipped);
+
+        depth_image_received = false;
+
+    } catch (cv_bridge::Exception& e) {
+        ROS_ERROR("cv_bridge exception: %s", e.what());
+    }
+}
+
+
+void RL_Sim::PublishDepthVisualization(const cv::Mat& depth_m)
+{
+    // 创建8位单通道图像用于可视化
+    cv::Mat depth_vis;
+
+    // 将深度值从[0, 2]米映射到[0, 255]
+    // 首先确保深度值在[0, 2]范围内
+    cv::Mat depth_clamped;
+    cv::threshold(depth_m, depth_clamped, 2.0, 2.0, cv::THRESH_TRUNC);  // 限制最大值为2
+
+    // 将深度值缩放到0-255范围
+    depth_clamped.convertTo(depth_vis, CV_8UC1, 127.5);  // 2.0 * 127.5 = 255
+
+    // 可选：应用色彩映射以获得更好的可视化效果
+    cv::Mat depth_colored;
+    cv::applyColorMap(depth_vis, depth_colored, cv::COLORMAP_JET);
+
+    // 创建ROS图像消息
+    cv_bridge::CvImage cv_image;
+    cv_image.header.stamp = ros::Time::now();
+    cv_image.header.frame_id = "depth_camera_link";
+    cv_image.encoding = sensor_msgs::image_encodings::BGR8;
+    cv_image.image = depth_colored;
+
+    // 发布图像
+    depth_vis_pub_.publish(cv_image.toImageMsg());
+}
+
+void RL_Sim::SmoothDepthMap()
+{
+  // 创建临时map存储滤波结果
+  std::vector<std::vector<float>> smoothed = this->depth_map;
+
+  // 应用简单的3x3中值滤波
+  for (int y = 1; y < this->DEPTH_HEIGHT - 1; ++y) {
+      for (int x = 1; x < this->DEPTH_WIDTH - 1; ++x) {
+          std::vector<float> neighbors;
+
+          // 收集3x3邻域
+          for (int dy = -1; dy <= 1; ++dy) {
+              for (int dx = -1; dx <= 1; ++dx) {
+                  neighbors.push_back(this->depth_map[y + dy][x +
+dx]);
+              }
+          }
+
+          // 中值滤波
+          std::sort(neighbors.begin(), neighbors.end());
+          smoothed[y][x] = neighbors[5];  // 中值（第5个元素）
+      }
+  }
+
+  // 更新depth_map
+  this->depth_map = smoothed;
 }
 
 void RL_Sim::Plot()
