@@ -74,6 +74,7 @@ std::vector<float> TorchModel::forward(const std::vector<std::vector<float>>& in
         torch::autograd::GradMode::set_enabled(false);
 
         // Ensure single-threaded execution (critical for performance!)
+        torch::NoGradGuard no_grad;
         torch::set_num_threads(1);
 
         // Execute forward inference
@@ -85,6 +86,102 @@ std::vector<float> TorchModel::forward(const std::vector<std::vector<float>>& in
     catch (const std::exception& e)
     {
         std::cout << LOGGER::ERROR << "Torch inference error: " << e.what() << std::endl;
+        throw;
+    }
+#else
+    throw std::runtime_error("Torch support not compiled");
+#endif
+}
+
+std::vector<float> TorchModel::forward( const std::vector<float>& obs_inputs, const std::vector<float>& depth_latent)
+{
+    if (!loaded_)
+    {
+        throw std::runtime_error("Model not loaded");
+    }
+
+#ifdef USE_TORCH
+    try
+    {
+        // Convert input vector to Torch tensor (use first input only)
+        auto obs_tensor = torch::tensor(obs_inputs, torch::kFloat32).unsqueeze(0);;
+        auto depth_tensor = torch::tensor(depth_latent, torch::kFloat32).unsqueeze(0);;
+
+        // Disable gradient computation before each forward pass
+        torch::autograd::GradMode::set_enabled(false);
+
+        // Ensure single-threaded execution (critical for performance!)
+        torch::NoGradGuard no_grad;
+        torch::set_num_threads(1);
+
+        // Execute forward inference
+        auto output = model_.forward({obs_tensor, depth_tensor}).toTensor();
+
+        // Convert output tensor to vector
+        return torch_to_vector(output);
+    }
+    catch (const std::exception& e)
+    {
+        std::cout << LOGGER::ERROR << "Torch inference error: " << e.what() << std::endl;
+        throw;
+    }
+#else
+    throw std::runtime_error("Torch support not compiled");
+#endif
+}
+
+std::vector<float> TorchModel::forward( const std::vector<std::vector<float>>& depth_inputs,
+                                            const std::vector<float>& obs_prop_depth)
+{
+    if (!loaded_) {
+        throw std::runtime_error("Model not loaded");
+    }
+
+#ifdef USE_TORCH
+    try {
+        int H = depth_inputs.size();
+        int W = depth_inputs.empty() ? 0 : depth_inputs[0].size();
+
+        if (H != 58 || W != 87) {
+            throw std::runtime_error(
+                "Depth input size mismatch: expected 58x87, got " +
+                std::to_string(H) + "x" + std::to_string(W)
+            );
+        }
+
+        // -------- depth: [1, 58, 87] --------
+        std::vector<float> depth_flat;
+        depth_flat.reserve(H * W);
+
+        for (const auto& row : depth_inputs) {
+            depth_flat.insert(depth_flat.end(), row.begin(), row.end());
+        }
+
+        auto depth_tensor = torch::from_blob(
+            depth_flat.data(),
+            {1, H, W},
+            torch::kFloat32
+        ).clone();
+
+        // -------- obs_prop_depth: [1, N] --------
+        auto obs_tensor = torch::from_blob(
+            const_cast<float*>(obs_prop_depth.data()),
+            {1, static_cast<long>(obs_prop_depth.size())},
+            torch::kFloat32
+        ).clone();
+
+        // -------- inference settings --------
+        torch::NoGradGuard no_grad;
+        torch::set_num_threads(1);
+
+        // -------- forward --------
+        auto output = model_.forward({depth_tensor, obs_tensor}).toTensor();
+
+        return torch_to_vector(output);
+    }
+    catch (const std::exception& e) {
+        std::cout << LOGGER::ERROR
+                  << "Torch inference error: " << e.what() << std::endl;
         throw;
     }
 #else
@@ -377,6 +474,17 @@ std::unique_ptr<Model> ModelFactory::load_model(const std::string& model_path, M
 
     // Create and load model
     auto model = create_model(type);
+    if (model && model->load(model_path))
+    {
+        return model;
+    }
+    return nullptr;
+}
+
+std::unique_ptr<TorchModel> ModelFactory::load_torch_model(const std::string& model_path)
+{
+    // Create and load model
+    auto model = std::make_unique<TorchModel>();
     if (model && model->load(model_path))
     {
         return model;

@@ -83,6 +83,9 @@ public:
     bool load(const std::string& model_path) override;
     bool is_loaded() const override { return loaded_; }
     std::vector<float> forward(const std::vector<std::vector<float>>& inputs) override;
+    std::vector<float> forward( const std::vector<std::vector<float>>& depth_inputs,
+                                            const std::vector<float>& obs_prop_depth);
+    std::vector<float> forward( const std::vector<float>& obs_inputs, const std::vector<float>& depth_latent);
     std::string get_model_type() const override { return "torch"; }
 
 private:
@@ -189,6 +192,7 @@ public:
      * @return Successfully loaded model smart pointer, returns nullptr on failure
      */
     static std::unique_ptr<Model> load_model(const std::string& model_path, ModelType type = ModelType::AUTO);
+    static std::unique_ptr<TorchModel> load_torch_model(const std::string& model_path);
 };
 
 } // namespace InferenceRuntime
