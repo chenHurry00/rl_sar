@@ -709,8 +709,13 @@ void RL_Sim::ProcessDepthImage()
         float near_clip = 0.0f;
         float far_clip  = 2.0f;
 
+        // ∞ -> 0 -> far_clip
+        cv::Mat depth_fixed = depth_resized.clone();
+        cv::Mat zero_mask = (depth_fixed == 0);
+        depth_fixed.setTo(far_clip, zero_mask);
+
         cv::Mat depth_clipped;
-        cv::min(depth_resized, far_clip, depth_clipped);
+        cv::min(depth_fixed, far_clip, depth_clipped);
         cv::max(depth_clipped, near_clip, depth_clipped);
 
         // normalize
@@ -718,9 +723,10 @@ void RL_Sim::ProcessDepthImage()
             (depth_clipped - near_clip) / (far_clip - near_clip) - 0.5f;
 
         // copy to depth_map
-        for (int y = 0; y < this->DEPTH_HEIGHT; ++y) {
-            for (int x = 0; x < this->DEPTH_WIDTH; ++x) {
-                this->depth_map[y][x] = depth_norm.at<float>(y, x);
+        for (int y = 0; y < DEPTH_HEIGHT; ++y) {
+            const float* row_ptr = depth_norm.ptr<float>(y);
+            for (int x = 0; x < DEPTH_WIDTH; ++x) {
+                depth_map[y][x] = row_ptr[x];
             }
         }
 
