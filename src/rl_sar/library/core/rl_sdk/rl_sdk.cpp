@@ -91,8 +91,9 @@ std::vector<float> RL::ComputeObservation()
         }
         else if (observation == "gravity_xy_vec")
         {
-            std::vector<float> gravity = QuatRotateInverse(this->obs.base_quat, this->obs.gravity_vec);
-            gravity.pop_back();
+            std::vector<float> gravity;
+            gravity.push_back(this->obs.euler_angles.at(0));
+            gravity.push_back(this->obs.euler_angles.at(1));
             obs_list.push_back(gravity);
         }
         else if (observation == "delta_yaw_vec")
@@ -424,34 +425,39 @@ void RL::UpdateContactFilter()
 
 void RL::updateEulerAngles()
 {
-    double qw = this->obs.base_quat[0];
-    double qx = this->obs.base_quat[1];
-    double qy = this->obs.base_quat[2];
-    double qz = this->obs.base_quat[3];
+    double w = this->obs.base_quat[0];
+    double x = this->obs.base_quat[1];
+    double y = this->obs.base_quat[2];
+    double z = this->obs.base_quat[3];
 
-    Eigen::Quaterniond q(qw, qx, qy, qz);
-    Eigen::Vector3d euler =
-        q.toRotationMatrix().eulerAngles(0, 1, 2); // roll pitch yaw
+    // roll
+    double t0 = +2.0 * (w * x + y * z);
+    double t1 = +1.0 - 2.0 * (x * x + y * y);
+    double roll_x = std::atan2(t0, t1);
 
-    double yaw = std::atan2(
-        2.0 * (qw * qz + qx * qy),
-        1.0 - 2.0 * (qy * qy + qz * qz)
-    );
+    // pitch
+    double t2 = +2.0 * (w * y - z * x);
+    t2 = std::max(-1.0, std::min(1.0, t2));
+    double pitch_y = std::asin(t2);
 
-    // continuous ranges
+    // yaw
+    double t3 = +2.0 * (w * z + x * y);
+    double t4 = +1.0 - 2.0 * (y * y + z * z);
+    double yaw_z = std::atan2(t3, t4);
+
     if (!yaw_initialized) {
-        last_yaw = yaw;
+        last_yaw = yaw_z;
         yaw_initialized = true;
     } else {
-        double dyaw = yaw - last_yaw;
-        if (dyaw > M_PI)  yaw -= 2.0 * M_PI;
-        if (dyaw < -M_PI) yaw += 2.0 * M_PI;
-        last_yaw = yaw;
+        double dyaw = yaw_z - last_yaw;
+        if (dyaw > M_PI)  yaw_z -= 2.0 * M_PI;
+        if (dyaw < -M_PI) yaw_z += 2.0 * M_PI;
+        last_yaw = yaw_z;
     }
 
-    this->obs.euler_angles[0] = static_cast<float>(euler[0]);
-    this->obs.euler_angles[1] = static_cast<float>(euler[1]);
-    this->obs.euler_angles[2] = yaw;
+    this->obs.euler_angles[0] = static_cast<float>(roll_x);
+    this->obs.euler_angles[1] = static_cast<float>(pitch_y);
+    this->obs.euler_angles[2] = static_cast<float>(yaw_z);
 }
 
 
