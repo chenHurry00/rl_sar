@@ -201,6 +201,7 @@ public:
     YamlParams params;
     Observations<float> obs;
     std::vector<int> obs_dims;
+    int num_prop, prop_items;
 
     RobotState<float> robot_state;
     RobotCommand<float> robot_command;
@@ -277,7 +278,7 @@ public:
     void AttitudeProtect(const std::vector<float> &quaternion, float pitch_threshold, float roll_threshold);
 
     // rl module
-    std::unique_ptr<InferenceRuntime::Model> model;
+    std::unique_ptr<InferenceRuntime::TorchModel> model, depth_model;
     // output buffer
     std::vector<float> output_dof_tau;
     std::vector<float> output_dof_pos;

@@ -89,9 +89,75 @@ std::vector<float> RL::ComputeObservation()
         {
             obs_list.push_back(QuatRotateInverse(this->obs.base_quat, this->obs.gravity_vec));
         }
+        else if (observation == "gravity_xy_vec")
+        {
+            std::vector<float> gravity = QuatRotateInverse(this->obs.base_quat, this->obs.gravity_vec);
+            gravity.pop_back();
+            obs_list.push_back(gravity);
+        }
+        else if (observation == "delta_yaw_vec")
+        {
+            std::vector<float> delta_yaw;
+            delta_yaw.push_back(0.);
+            delta_yaw.push_back(0.);
+            delta_yaw.push_back(0.);
+            obs_list.push_back(delta_yaw);
+        }
+        else if (observation == "hurdle")
+        {
+            std::vector<float> hurdle;
+            hurdle.push_back(1.);
+            hurdle.push_back(0.);
+            obs_list.push_back(hurdle);
+        }
+        else if ( observation == "priv_explicit_reserve")
+        {
+            std::vector<float> reserve;
+            reserve.resize(3 + 3 + 3);
+            obs_list.push_back(reserve);
+        }
+        else if ( observation == "priv_latent")
+        {
+            std::vector<float> latent;
+            latent.reserve(4 + 1 + 12 + 12);
+
+            // todo: parameterized
+            // [4] 质量参数
+            latent.insert(latent.end(), {0.0f, 0.0f, 0.0f, 0.0f});
+            // [1] 摩擦系数
+            latent.push_back(1.0f);
+            // [12] 前腿电机强度
+            latent.insert(latent.end(), 12, 0.001f);
+            // [12] 后腿电机强度
+            latent.insert(latent.end(), 12, 0.001f);
+
+            obs_list.push_back(latent);
+        }
+        else if ( observation == "scan_reserve")
+        {
+            std::vector<float> reserve;
+            reserve.resize(132);
+            obs_list.push_back(reserve);
+        }
+        else if ( observation == "contact_filt")
+        {
+            std::vector<float> b;
+            b.reserve(current_contacts.size());
+
+            for (bool v : current_contacts) {
+                b.push_back(static_cast<float>(v) - 0.5f);
+            }
+            obs_list.push_back(b);
+        }
         else if (observation == "commands")
         {
-            obs_list.push_back(this->obs.commands * this->params.Get<std::vector<float>>("commands_scale"));
+            // obs_list.push_back(this->obs.commands * this->params.Get<std::vector<float>>("commands_scale"));
+
+            std::vector<float> commands;
+            commands.assign({0, 0, 0});
+            commands.at(2) = (this->obs.commands.at(0) *
+                                this->params.Get<std::vector<float>>("commands_scale")).at(0);
+            obs_list.push_back(commands);
         }
         else if (observation == "dof_pos")
         {
@@ -190,9 +256,10 @@ std::vector<float> RL::ComputeObservation()
     }
 
     this->obs_dims.clear();
-    for (const auto& obs : obs_list)
+
+    for (int i=0; i<prop_items; ++i)
     {
-       this->obs_dims.push_back(obs.size());
+        this->obs_dims.push_back(obs_list.at(i).size());
     }
 
     std::vector<float> obs;
@@ -217,6 +284,8 @@ void RL::InitObservations()
     this->obs.dof_vel.resize(this->params.Get<int>("num_of_dofs"), 0.0f);
     this->obs.actions.clear();
     this->obs.actions.resize(this->params.Get<int>("num_of_dofs"), 0.0f);
+    this->num_prop = this->params.Get<int>("num_observations");
+    this->prop_items = this->params.Get<int>("prop_items");
     this->ComputeObservation();
 }
 
@@ -279,11 +348,18 @@ void RL::InitRL(std::string robot_config_path)
 
     // init model
     std::string model_path = std::string(POLICY_DIR) + "/" + robot_config_path + "/" + this->params.Get<std::string>("model_name");
-    std::cout << "Load model: " << model_path.c_str() << std::endl;
-    this->model = InferenceRuntime::ModelFactory::load_model(model_path);
+    std::string depth_model_path = std::string(POLICY_DIR) + "/" + robot_config_path + "/" + this->params.Get<std::string>("depth_model_name");
+    std::cout << "Load model: " << depth_model_path.c_str() << std::endl;
+    this->model = InferenceRuntime::ModelFactory::load_torch_model(model_path);
+    this->depth_model = InferenceRuntime::ModelFactory::load_torch_model(depth_model_path);
+    //this->depth_model = InferenceRuntime::ModelFactory::load_model(depth_model_path);
     if (!this->model)
     {
         throw std::runtime_error("Failed to load model from: " + model_path);
+    }
+    if (!this->depth_model)
+    {
+        throw std::runtime_error("Failed to load depth model from: " + depth_model_path);
     }
 }
 

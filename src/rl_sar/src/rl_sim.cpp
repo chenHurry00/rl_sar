@@ -582,12 +582,53 @@ std::vector<float> RL_Sim::Forward()
 
     std::vector<float> clamped_obs = this->ComputeObservation();
 
-    std::vector<float> actions;
+    std::vector<float> actions, depth_latent_yaw;
     if (this->params.Get<std::vector<int>>("observations_history").size() != 0)
     {
-        this->history_obs_buf.insert(clamped_obs);
+        std::vector<float> prop_obs(clamped_obs.begin(), clamped_obs.begin() + num_prop), prop_history_obs,
+                            depth_latent, yaw;
+
+        this->history_obs_buf.insert(prop_obs);
         this->history_obs = this->history_obs_buf.get_obs_vec(this->params.Get<std::vector<int>>("observations_history"));
-        actions = this->model->forward({this->history_obs});
+
+        prop_history_obs.reserve(clamped_obs.size() + history_obs.size());
+        prop_history_obs.insert(prop_history_obs.end(), clamped_obs.begin(), clamped_obs.end());
+        prop_history_obs.insert(prop_history_obs.end(), history_obs.begin(), history_obs.end());
+
+        auto t0 = std::chrono::steady_clock::now();
+        depth_latent_yaw = this->depth_model->forward(depth_map, prop_obs);
+        auto t1 = std::chrono::steady_clock::now();
+        double depth_ms =
+            std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+        depth_latent.reserve(depth_latent_yaw.size() - 2);
+        depth_latent.insert(depth_latent.end(), depth_latent_yaw.begin(), depth_latent_yaw.begin() +
+                                        depth_latent_yaw.size() - 2);
+        yaw.reserve(2);
+        yaw.insert(yaw.end(), depth_latent_yaw.begin() +
+                                        depth_latent_yaw.size() - 2, depth_latent_yaw.end());
+        prop_history_obs.at(6) = yaw.at(0);
+        prop_history_obs.at(7) = yaw.at(1);
+
+        PrintObservation(prop_history_obs, OBS_LAYOUT);
+
+        auto t2 = std::chrono::steady_clock::now();
+        actions = this->model->forward(prop_history_obs, depth_latent);
+        auto t3 = std::chrono::steady_clock::now();
+        double policy_ms =
+            std::chrono::duration<double, std::milli>(t3 - t2).count();
+
+        const auto& obs_names =
+        this->params.Get<std::vector<std::string>>("observations");
+
+
+        // ROS_INFO_THROTTLE(
+        //     0.5,
+        //     "Inference time | depth: %.3f ms | policy: %.3f ms",
+        //     depth_ms,
+        //     policy_ms
+        // );
+
     }
     else
     {
