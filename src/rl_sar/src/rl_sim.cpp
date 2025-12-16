@@ -569,8 +569,65 @@ void RL_Sim::RunModel()
     }
 }
 
+void PrintObservation(
+    const std::vector<float>& obs,
+    const ObsLayout& layout,
+    int precision = 3,
+    int width = 7
+)
+{
+    size_t offset = 0;
+
+    std::cout << "===== OBS DEBUG =====\n";
+
+    for (const auto& item : layout)
+    {
+        const std::string& name = item.first;
+        size_t dim = item.second;
+
+        if (offset + dim > obs.size())
+        {
+            std::cerr << "Obs overflow at " << name << "\n";
+            return;
+        }
+
+        std::cout << std::left << std::setw(25)
+                  << name
+                  << " (" << std::setw(3) << dim << "): ";
+
+        for (size_t i = 0; i < dim; ++i)
+        {
+            std::cout << std::fixed << std::setw(width)
+                      << std::setprecision(precision)
+                      << obs[offset + i] << " ";
+        }
+        std::cout << "\n";
+
+        offset += dim;
+    }
+
+    std::cout << "Total obs dim: " << offset << "\n";
+    std::cout << "=====================\n";
+}
+
+
 std::vector<float> RL_Sim::Forward()
 {
+    ObsLayout OBS_LAYOUT = {
+        {"ang_vel", 3},
+        {"gravity_xy_vec", 2},
+        {"delta_yaw_vec", 3},
+        {"commands", 3},
+        {"hurdle", 2},
+        {"dof_pos", this->params.Get<int>("num_of_dofs")},
+        {"dof_vel", this->params.Get<int>("num_of_dofs")},
+        {"actions", this->params.Get<int>("num_of_dofs")},   // or num_actions
+        {"contact_filt", this->current_contacts.size()},
+        {"scan_reserve", 132},
+        {"priv_explicit_reserve", 9},
+        {"priv_latent", 29},
+    };
+
     std::unique_lock<std::mutex> lock(this->model_mutex, std::try_to_lock);
 
     // If model is being reinitialized, return previous actions to avoid blocking
@@ -595,11 +652,7 @@ std::vector<float> RL_Sim::Forward()
         prop_history_obs.insert(prop_history_obs.end(), clamped_obs.begin(), clamped_obs.end());
         prop_history_obs.insert(prop_history_obs.end(), history_obs.begin(), history_obs.end());
 
-        auto t0 = std::chrono::steady_clock::now();
         depth_latent_yaw = this->depth_model->forward(depth_map, prop_obs);
-        auto t1 = std::chrono::steady_clock::now();
-        double depth_ms =
-            std::chrono::duration<double, std::milli>(t1 - t0).count();
 
         depth_latent.reserve(depth_latent_yaw.size() - 2);
         depth_latent.insert(depth_latent.end(), depth_latent_yaw.begin(), depth_latent_yaw.begin() +
@@ -610,24 +663,9 @@ std::vector<float> RL_Sim::Forward()
         prop_history_obs.at(6) = yaw.at(0);
         prop_history_obs.at(7) = yaw.at(1);
 
-        PrintObservation(prop_history_obs, OBS_LAYOUT);
+        //PrintObservation(prop_history_obs, OBS_LAYOUT);
 
-        auto t2 = std::chrono::steady_clock::now();
         actions = this->model->forward(prop_history_obs, depth_latent);
-        auto t3 = std::chrono::steady_clock::now();
-        double policy_ms =
-            std::chrono::duration<double, std::milli>(t3 - t2).count();
-
-        const auto& obs_names =
-        this->params.Get<std::vector<std::string>>("observations");
-
-
-        // ROS_INFO_THROTTLE(
-        //     0.5,
-        //     "Inference time | depth: %.3f ms | policy: %.3f ms",
-        //     depth_ms,
-        //     policy_ms
-        // );
 
     }
     else
