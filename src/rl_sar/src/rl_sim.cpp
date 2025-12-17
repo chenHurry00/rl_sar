@@ -7,6 +7,8 @@
 
 #include <std_msgs/Float64.h>
 
+using ObsLayout = std::vector<std::pair<std::string, size_t>>;
+
 RL_Sim::RL_Sim(int argc, char **argv)
 {
 #if defined(USE_ROS1)
