@@ -175,6 +175,8 @@ public:
             rl.rl_init_done = false;
             rl.fsm.RequestStateChange("RLFSMStatePassive");
         }
+
+        rl.depth_model->reset_hidden();;
     }
 
     void Run() override

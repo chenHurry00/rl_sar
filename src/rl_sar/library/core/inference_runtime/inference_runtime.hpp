@@ -87,6 +87,7 @@ public:
                                             const std::vector<float>& obs_prop_depth);
     std::vector<float> forward( const std::vector<float>& obs_inputs, const std::vector<float>& depth_latent);
     std::string get_model_type() const override { return "torch"; }
+    void reset_hidden();
 
 private:
 #ifdef USE_TORCH

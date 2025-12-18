@@ -392,6 +392,9 @@ void RL_Sim::RobotControl()
         auto result = this->gazebo_reset_world_client->async_send_request(empty_request);
 #endif
         this->control.current_keyboard = this->control.last_keyboard;
+
+        // Reset rnn state
+        this->depth_model->reset_hidden();
     }
     if (this->control.current_keyboard == Input::Keyboard::Enter || this->control.current_gamepad == Input::Gamepad::RB_X)
     {

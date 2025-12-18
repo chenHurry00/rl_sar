@@ -189,6 +189,15 @@ std::vector<float> TorchModel::forward( const std::vector<std::vector<float>>& d
 #endif
 }
 
+void TorchModel::reset_hidden()
+{
+    if (!loaded_) {
+        throw std::runtime_error("Model not loaded");
+    }
+
+    model_.run_method("reset_hidden");
+}
+
 #ifdef USE_TORCH
 torch::Tensor TorchModel::vector_to_torch(const std::vector<float>& data, const std::vector<int64_t>& shape)
 {
