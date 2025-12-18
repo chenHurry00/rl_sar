@@ -156,6 +156,8 @@ RL_Sim::RL_Sim(int argc, char **argv)
 
     // Depth
     this->depth_image_received = false;
+    this->prop_obs_ready = false;
+    this->latest_prop_obs.reserve(this->num_prop);
     this->d435_depth_sub = nh.subscribe<sensor_msgs::Image>(
         "/d435/depth/image_raw", 1,
         [this](const sensor_msgs::Image::ConstPtr& msg) {
@@ -640,11 +642,18 @@ std::vector<float> RL_Sim::Forward()
 
     std::vector<float> clamped_obs = this->ComputeObservation();
 
-    std::vector<float> actions, depth_latent_yaw;
+    std::vector<float> actions(12, 0);
     if (this->params.Get<std::vector<int>>("observations_history").size() != 0)
     {
         std::vector<float> prop_obs(clamped_obs.begin(), clamped_obs.begin() + num_prop), prop_history_obs,
                             depth_latent, yaw;
+
+        // Update prop_obs
+        {
+            std::lock_guard<std::mutex> lock_prop(this->prop_obs_mutex);
+            this->latest_prop_obs = prop_obs;
+            this->prop_obs_ready = true;
+        }
 
         this->history_obs_buf.insert(prop_obs);
         this->history_obs = this->history_obs_buf.get_obs_vec(this->params.Get<std::vector<int>>("observations_history"));
@@ -653,7 +662,8 @@ std::vector<float> RL_Sim::Forward()
         prop_history_obs.insert(prop_history_obs.end(), clamped_obs.begin(), clamped_obs.end());
         prop_history_obs.insert(prop_history_obs.end(), history_obs.begin(), history_obs.end());
 
-        depth_latent_yaw = this->depth_model->forward(depth_map, prop_obs);
+        if (depth_latent_yaw.empty())
+            return actions;
 
         depth_latent.reserve(depth_latent_yaw.size() - 2);
         depth_latent.insert(depth_latent.end(), depth_latent_yaw.begin(), depth_latent_yaw.begin() +
@@ -732,6 +742,18 @@ void RL_Sim::ProcessDepthImage()
         }
 
         this->SmoothDepthMap();
+
+        std::vector<float> prop_obs;
+        bool has_valid_data = false;
+        {
+            std::lock_guard<std::mutex> lock_prop(this->prop_obs_mutex);
+            if (this->prop_obs_ready && !this->latest_prop_obs.empty()) {
+                prop_obs = this->latest_prop_obs;
+                has_valid_data = true;
+            }
+        }
+        if (has_valid_data)
+            depth_latent_yaw = this->depth_model->forward(depth_map, prop_obs);
 
         // visualization
         this->PublishDepthVisualization(depth_clipped);

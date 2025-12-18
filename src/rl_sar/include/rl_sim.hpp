@@ -26,6 +26,8 @@
 #include <stdexcept>
 #include <cv_bridge/cv_bridge.h>
 #include <opencv2/opencv.hpp>
+#include <mutex>
+#include <atomic>
 
 #if defined(USE_ROS1)
 #include <ros/ros.h>
@@ -111,10 +113,17 @@ private:
     std::map<std::string, ros::Subscriber> joint_subscribers;
     std::vector<robot_msgs::MotorCommand> joint_publishers_commands;
     sensor_msgs::Image depth_image;
+    std::vector<float> depth_latent_yaw;
     std::vector<std::vector<float>> depth_map;  // [height][width]
     const int DEPTH_WIDTH = 87;
     const int DEPTH_HEIGHT = 58;
     bool depth_image_received;
+
+    // prop_obs buffer
+    std::vector<float> latest_prop_obs;
+    std::mutex prop_obs_mutex;
+    std::atomic<bool> prop_obs_ready{false};
+
     void ModelStatesCallback(const gazebo_msgs::ModelStates::ConstPtr &msg);
     void JointStatesCallback(const robot_msgs::MotorState::ConstPtr &msg, const std::string &joint_controller_name);
     void CmdvelCallback(const geometry_msgs::Twist::ConstPtr &msg);
