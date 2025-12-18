@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 go2/robot_lab:
-  model_name: "extreme-15500-base_jit.pt"
+  model_name: "extreme-21500-base_jit.pt"
   depth_model_name: "extreme-21500-depth_encoder_jit.pt"
   num_observations: 53
   prop_items: 9
