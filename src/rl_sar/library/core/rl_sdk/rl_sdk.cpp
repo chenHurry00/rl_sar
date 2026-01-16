@@ -107,8 +107,8 @@ std::vector<float> RL::ComputeObservation()
         else if (observation == "hurdle")
         {
             std::vector<float> hurdle;
-            hurdle.push_back(1.);
             hurdle.push_back(0.);
+            hurdle.push_back(1.);
             obs_list.push_back(hurdle);
         }
         else if ( observation == "priv_explicit_reserve")
@@ -349,16 +349,25 @@ void RL::InitRL(std::string robot_config_path)
 
     // init model
     std::string model_path = std::string(POLICY_DIR) + "/" + robot_config_path + "/" + this->params.Get<std::string>("model_name");
-    std::string depth_model_path = std::string(POLICY_DIR) + "/" + robot_config_path + "/" + this->params.Get<std::string>("depth_model_name");
-    std::cout << "Load model: " << depth_model_path.c_str() << std::endl;
+    const std::string depth_model_name = this->params.Get<std::string>("depth_model_name");
+    const bool has_depth_model = !depth_model_name.empty() && depth_model_name != "none" && depth_model_name != "None";
+    std::string depth_model_path;
+    if (has_depth_model)
+    {
+        depth_model_path = std::string(POLICY_DIR) + "/" + robot_config_path + "/" + depth_model_name;
+        std::cout << "Load model: " << depth_model_path.c_str() << std::endl;
+    }
     this->model = InferenceRuntime::ModelFactory::load_torch_model(model_path);
-    this->depth_model = InferenceRuntime::ModelFactory::load_torch_model(depth_model_path);
-    //this->depth_model = InferenceRuntime::ModelFactory::load_model(depth_model_path);
+    if (has_depth_model)
+    {
+        this->depth_model = InferenceRuntime::ModelFactory::load_torch_model(depth_model_path);
+        //this->depth_model = InferenceRuntime::ModelFactory::load_model(depth_model_path);
+    }
     if (!this->model)
     {
         throw std::runtime_error("Failed to load model from: " + model_path);
     }
-    if (!this->depth_model)
+    if (has_depth_model && !this->depth_model)
     {
         throw std::runtime_error("Failed to load depth model from: " + depth_model_path);
     }

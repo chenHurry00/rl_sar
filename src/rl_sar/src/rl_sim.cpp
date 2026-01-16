@@ -99,10 +99,7 @@ RL_Sim::RL_Sim(int argc, char **argv)
 
     // Depth visualization publisher
     depth_vis_pub_ = nh.advertise<sensor_msgs::Image>("/depth_visualization_cliped", 1);
-    this->depth_map.resize(this->DEPTH_HEIGHT);
-    for (int i = 0; i < this->DEPTH_HEIGHT; ++i) {
-        this->depth_map[i].resize(this->DEPTH_WIDTH);
-    }
+    this->depth_flat.resize(this->DEPTH_HEIGHT * this->DEPTH_WIDTH, 0.0f);
 
     // subscriber
     this->cmd_vel_subscriber = nh.subscribe<geometry_msgs::Twist>("/cmd_vel", 10, &RL_Sim::CmdvelCallback, this);
@@ -156,8 +153,6 @@ RL_Sim::RL_Sim(int argc, char **argv)
 
     // Depth
     this->depth_image_received = false;
-    this->prop_obs_ready = false;
-    this->latest_prop_obs.reserve(this->num_prop);
     this->d435_depth_sub = nh.subscribe<sensor_msgs::Image>(
         "/d435/depth/image_raw", 1,
         [this](const sensor_msgs::Image::ConstPtr& msg) {
@@ -394,7 +389,10 @@ void RL_Sim::RobotControl()
         this->control.current_keyboard = this->control.last_keyboard;
 
         // Reset rnn state
-        this->depth_model->reset_hidden();
+        if (this->model)
+        {
+            this->model->reset_hidden();
+        }
     }
     if (this->control.current_keyboard == Input::Keyboard::Enter || this->control.current_gamepad == Input::Gamepad::RB_X)
     {
@@ -648,39 +646,28 @@ std::vector<float> RL_Sim::Forward()
     std::vector<float> actions(12, 0);
     if (this->params.Get<std::vector<int>>("observations_history").size() != 0)
     {
-        std::vector<float> prop_obs(clamped_obs.begin(), clamped_obs.begin() + num_prop), prop_history_obs,
-                            depth_latent, yaw;
-
-        // Update prop_obs
-        {
-            std::lock_guard<std::mutex> lock_prop(this->prop_obs_mutex);
-            this->latest_prop_obs = prop_obs;
-            this->prop_obs_ready = true;
-        }
+        std::vector<float> prop_obs(clamped_obs.begin(), clamped_obs.begin() + num_prop);
+        std::vector<float> prop_history_obs;
 
         this->history_obs_buf.insert(prop_obs);
         this->history_obs = this->history_obs_buf.get_obs_vec(this->params.Get<std::vector<int>>("observations_history"));
 
-        prop_history_obs.reserve(clamped_obs.size() + history_obs.size());
-        prop_history_obs.insert(prop_history_obs.end(), clamped_obs.begin(), clamped_obs.end());
+        prop_history_obs.reserve(prop_obs.size() + history_obs.size());
+        prop_history_obs.insert(prop_history_obs.end(), prop_obs.begin(), prop_obs.end());
         prop_history_obs.insert(prop_history_obs.end(), history_obs.begin(), history_obs.end());
 
-        if (depth_latent_yaw.empty())
-            return actions;
+        std::vector<float> depth_flat_local;
+        {
+            std::lock_guard<std::mutex> lock_depth(this->depth_mutex);
+            if (!this->depth_ready || this->depth_flat.empty() ||
+                this->depth_flat.size() != static_cast<size_t>(this->DEPTH_HEIGHT * this->DEPTH_WIDTH))
+            {
+                return this->obs.actions;
+            }
+            depth_flat_local = this->depth_flat;
+        }
 
-        depth_latent.reserve(depth_latent_yaw.size() - 2);
-        depth_latent.insert(depth_latent.end(), depth_latent_yaw.begin(), depth_latent_yaw.begin() +
-                                        depth_latent_yaw.size() - 2);
-        yaw.reserve(2);
-        yaw.insert(yaw.end(), depth_latent_yaw.begin() +
-                                        depth_latent_yaw.size() - 2, depth_latent_yaw.end());
-        prop_history_obs.at(6) = 1.5 * yaw.at(0);
-        prop_history_obs.at(7) = 1.5 * yaw.at(1);
-
-        //PrintObservation(prop_history_obs, OBS_LAYOUT);
-
-        actions = this->model->forward(prop_history_obs, depth_latent);
-
+        actions = this->model->forward(prop_history_obs, depth_flat_local);
     }
     else
     {
@@ -708,6 +695,11 @@ void RL_Sim::ProcessDepthImage()
         cv_bridge::CvImagePtr cv_ptr =
             cv_bridge::toCvCopy(this->depth_image, "16UC1");
         cv::Mat depth_mm = cv_ptr->image;
+        if (depth_mm.empty() || depth_mm.rows <= 0 || depth_mm.cols <= 0)
+        {
+            depth_image_received = false;
+            return;
+        }
 
         // mm -> m
         cv::Mat depth_m;
@@ -717,12 +709,13 @@ void RL_Sim::ProcessDepthImage()
         cv::Mat depth_resized;
         cv::resize(depth_m, depth_resized,
                    cv::Size(this->DEPTH_WIDTH, this->DEPTH_HEIGHT),
-                   0, 0, cv::INTER_LINEAR);
+                   0, 0, cv::INTER_AREA);
 
         // clip
         float near_clip = 0.0f;
         float far_clip  = 2.0f;
 
+        // todo： check this
         // ∞ -> 0 -> far_clip
         cv::Mat depth_fixed = depth_resized.clone();
         cv::Mat zero_mask = (depth_fixed == 0);
@@ -731,32 +724,27 @@ void RL_Sim::ProcessDepthImage()
         cv::Mat depth_clipped;
         cv::min(depth_fixed, far_clip, depth_clipped);
         cv::max(depth_clipped, near_clip, depth_clipped);
+        if (cv::countNonZero(depth_clipped) == 0)
+        {
+            depth_image_received = false;
+            return;
+        }
 
         // normalize
         cv::Mat depth_norm =
             (depth_clipped - near_clip) / (far_clip - near_clip) - 0.5f;
 
-        // copy to depth_map
+        std::vector<float> depth_flat_local;
+        depth_flat_local.reserve(this->DEPTH_HEIGHT * this->DEPTH_WIDTH);
         for (int y = 0; y < DEPTH_HEIGHT; ++y) {
             const float* row_ptr = depth_norm.ptr<float>(y);
-            for (int x = 0; x < DEPTH_WIDTH; ++x) {
-                depth_map[y][x] = row_ptr[x];
-            }
+            depth_flat_local.insert(depth_flat_local.end(), row_ptr, row_ptr + DEPTH_WIDTH);
         }
-
-        this->SmoothDepthMap();
-
-        std::vector<float> prop_obs;
-        bool has_valid_data = false;
         {
-            std::lock_guard<std::mutex> lock_prop(this->prop_obs_mutex);
-            if (this->prop_obs_ready && !this->latest_prop_obs.empty()) {
-                prop_obs = this->latest_prop_obs;
-                has_valid_data = true;
-            }
+            std::lock_guard<std::mutex> lock_depth(this->depth_mutex);
+            this->depth_flat = std::move(depth_flat_local);
+            this->depth_ready = true;
         }
-        if (has_valid_data)
-            depth_latent_yaw = this->depth_model->forward(depth_map, prop_obs);
 
         // visualization
         this->PublishDepthVisualization(depth_clipped);
@@ -765,6 +753,7 @@ void RL_Sim::ProcessDepthImage()
 
     } catch (cv_bridge::Exception& e) {
         ROS_ERROR("cv_bridge exception: %s", e.what());
+        depth_image_received = false;
     }
 }
 
@@ -795,34 +784,6 @@ void RL_Sim::PublishDepthVisualization(const cv::Mat& depth_m)
 
     // 发布图像
     depth_vis_pub_.publish(cv_image.toImageMsg());
-}
-
-void RL_Sim::SmoothDepthMap()
-{
-  // 创建临时map存储滤波结果
-  std::vector<std::vector<float>> smoothed = this->depth_map;
-
-  // 应用简单的3x3中值滤波
-  for (int y = 1; y < this->DEPTH_HEIGHT - 1; ++y) {
-      for (int x = 1; x < this->DEPTH_WIDTH - 1; ++x) {
-          std::vector<float> neighbors;
-
-          // 收集3x3邻域
-          for (int dy = -1; dy <= 1; ++dy) {
-              for (int dx = -1; dx <= 1; ++dx) {
-                  neighbors.push_back(this->depth_map[y + dy][x +
-dx]);
-              }
-          }
-
-          // 中值滤波
-          std::sort(neighbors.begin(), neighbors.end());
-          smoothed[y][x] = neighbors[5];  // 中值（第5个元素）
-      }
-  }
-
-  // 更新depth_map
-  this->depth_map = smoothed;
 }
 
 void RL_Sim::Plot()

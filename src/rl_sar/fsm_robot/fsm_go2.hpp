@@ -176,7 +176,10 @@ public:
             rl.fsm.RequestStateChange("RLFSMStatePassive");
         }
 
-        rl.depth_model->reset_hidden();;
+        if (rl.model)
+        {
+            rl.model->reset_hidden();
+        }
     }
 
     void Run() override
