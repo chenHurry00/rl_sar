@@ -100,15 +100,15 @@ std::vector<float> RL::ComputeObservation()
         {
             std::vector<float> delta_yaw;
             delta_yaw.push_back(0.);
-            delta_yaw.push_back(0.);
-            delta_yaw.push_back(0.);
+            delta_yaw.push_back(this->obs.commands.at(2));
+            delta_yaw.push_back(this->obs.commands.at(2));
             obs_list.push_back(delta_yaw);
         }
         else if (observation == "hurdle")
         {
             std::vector<float> hurdle;
-            hurdle.push_back(0.);
             hurdle.push_back(1.);
+            hurdle.push_back(0.);
             obs_list.push_back(hurdle);
         }
         else if ( observation == "priv_explicit_reserve")

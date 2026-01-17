@@ -82,7 +82,7 @@ class ExtremeParkourWrapper(nn.Module):
         yaw = depth_latent_yaw[:, -2:] * 1.5
 
         proprio = proprio.clone()
-        proprio[:, 6:8] = yaw
+        #proprio[:, 6:8] = yaw
 
         lin_vel_latent = self.estimator(proprio)
         priv_latent = self.history_encoder(hist.view(batch, self.n_hist, self.n_proprio))
