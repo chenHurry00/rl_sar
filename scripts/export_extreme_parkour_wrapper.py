@@ -135,3 +135,11 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+'''
+"/home/yuchen/miniconda3/envs/extreme38/bin/python" "scripts/export_extreme_parkour_wrapper.py" --base \
+"policy/go2/robot_lab/base_jit.pt" --vision "policy/go2/robot_lab/vision_weight.pt" --output "scripts/export_extreme_parkour_wrapper_yawrate.pt"
+
+"/home/yuchen/miniconda3/envs/extreme38/bin/python" "scripts/export_extreme_parkour_wrapper.py" --base \
+"/home/yuchen/usetest/rl_sar/policy/go2/robot_lab/extreme-21500-base_jit.pt" --vision "/home/yuchen/usetest/rl_sar/policy/go2/robot_lab/yy3-go2-WHATEVER-21500-vision_weight.pt" --output "scripts/export_21500_extreme_parkour_wrapper_yawrate.pt"
+'''
