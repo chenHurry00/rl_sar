@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 go2/robot_lab:
-  model_name: "extreme_parkour_wrapper_yawrate.pt"
+  model_name: "export_4800_extreme_parkour_wrapper_stair.pt"
   depth_model_name: "none"
   num_observations: 53
   prop_items: 9
